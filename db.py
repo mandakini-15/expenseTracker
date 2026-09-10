@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 
 CATEGORIES = [
     "Food",
@@ -12,6 +12,19 @@ CATEGORIES = [
     "Entertainment",
     "Other",
 ]
+
+CURRENCIES = {
+    "USD": "$",
+    "EUR": "€",
+    "GBP": "£",
+    "INR": "₹",
+    "JPY": "¥",
+    "AUD": "A$",
+    "CAD": "C$",
+    "CHF": "CHF",
+    "CNY": "¥",
+}
+DEFAULT_CURRENCY = "USD"
 
 _engine = None
 
@@ -50,21 +63,39 @@ def init_db():
                     date TEXT NOT NULL,
                     category TEXT NOT NULL,
                     amount REAL NOT NULL,
+                    currency TEXT NOT NULL DEFAULT '{DEFAULT_CURRENCY}',
                     note TEXT
                 )
                 """
             )
         )
 
+    # Add the currency column for databases created before this feature existed.
+    columns = {c["name"] for c in inspect(engine).get_columns("expenses")}
+    if "currency" not in columns:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    f"ALTER TABLE expenses ADD COLUMN currency TEXT "
+                    f"NOT NULL DEFAULT '{DEFAULT_CURRENCY}'"
+                )
+            )
 
-def add_expense(date, category, amount, note=""):
+
+def add_expense(date, category, amount, currency=DEFAULT_CURRENCY, note=""):
     with get_engine().begin() as conn:
         conn.execute(
             text(
-                "INSERT INTO expenses (date, category, amount, note) "
-                "VALUES (:date, :category, :amount, :note)"
+                "INSERT INTO expenses (date, category, amount, currency, note) "
+                "VALUES (:date, :category, :amount, :currency, :note)"
             ),
-            {"date": date, "category": category, "amount": amount, "note": note},
+            {
+                "date": date,
+                "category": category,
+                "amount": amount,
+                "currency": currency,
+                "note": note,
+            },
         )
 
 
