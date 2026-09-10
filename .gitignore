@@ -3,3 +3,4 @@ __pycache__/
 expenses.db
 .venv/
 venv/
+.streamlit/secrets.toml

@@ -1,9 +1,8 @@
-import sqlite3
 from pathlib import Path
 
 import pandas as pd
-
-DB_PATH = Path(__file__).parent / "expenses.db"
+import streamlit as st
+from sqlalchemy import create_engine, text
 
 CATEGORIES = [
     "Food",
@@ -14,42 +13,70 @@ CATEGORIES = [
     "Other",
 ]
 
+_engine = None
 
-def get_connection():
-    return sqlite3.connect(DB_PATH)
+
+def _database_url():
+    """Use a cloud Postgres DB if configured via secrets, otherwise a local SQLite file."""
+    try:
+        url = st.secrets["database"]["url"]
+        if url:
+            return url
+    except Exception:
+        pass
+    return f"sqlite:///{Path(__file__).parent / 'expenses.db'}"
+
+
+def get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(_database_url())
+    return _engine
 
 
 def init_db():
-    with get_connection() as conn:
+    engine = get_engine()
+    id_column = (
+        "id INTEGER PRIMARY KEY AUTOINCREMENT"
+        if engine.dialect.name == "sqlite"
+        else "id SERIAL PRIMARY KEY"
+    )
+    with engine.begin() as conn:
         conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS expenses (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT NOT NULL,
-                category TEXT NOT NULL,
-                amount REAL NOT NULL,
-                note TEXT
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS expenses (
+                    {id_column},
+                    date TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    note TEXT
+                )
+                """
             )
-            """
         )
 
 
 def add_expense(date, category, amount, note=""):
-    with get_connection() as conn:
+    with get_engine().begin() as conn:
         conn.execute(
-            "INSERT INTO expenses (date, category, amount, note) VALUES (?, ?, ?, ?)",
-            (date, category, amount, note),
+            text(
+                "INSERT INTO expenses (date, category, amount, note) "
+                "VALUES (:date, :category, :amount, :note)"
+            ),
+            {"date": date, "category": category, "amount": amount, "note": note},
         )
 
 
 def delete_expense(expense_id):
-    with get_connection() as conn:
-        conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+    with get_engine().begin() as conn:
+        conn.execute(text("DELETE FROM expenses WHERE id = :id"), {"id": expense_id})
 
 
 def get_all_expenses():
-    with get_connection() as conn:
-        df = pd.read_sql_query("SELECT * FROM expenses ORDER BY date DESC, id DESC", conn)
+    df = pd.read_sql_query(
+        text("SELECT * FROM expenses ORDER BY date DESC, id DESC"), get_engine()
+    )
     if not df.empty:
         df["date"] = pd.to_datetime(df["date"])
     return df
